@@ -16,37 +16,54 @@ const DashboardScreen = ({ navigation }) => {
   
   // Carregar dados dos plantões
   useEffect(() => {
+    let isMounted = true;
+    
     const loadData = async () => {
-      setLoading(true);
-      setError(null);
+      if (isMounted) {
+        setLoading(true);
+        setError(null);
+      }
       
       try {
         // Carregar estatísticas
         const statsResult = await shiftService.getShiftStats();
-        if (statsResult.success) {
-          setStats(statsResult.data);
-        } else {
-          console.error('Erro ao carregar estatísticas:', statsResult.error);
-          setError(statsResult.error);
+        if (isMounted) {
+          if (statsResult.success) {
+            setStats(statsResult.data);
+          } else {
+            console.error('Erro ao carregar estatísticas:', statsResult.error);
+            setError(statsResult.error);
+          }
         }
         
         // Carregar próximos plantões
         const shiftsResult = await shiftService.getUpcomingShifts(2);
-        if (shiftsResult.success) {
-          setProximosPlantoes(shiftsResult.data);
-        } else {
-          console.error('Erro ao carregar plantões:', shiftsResult.error);
-          setError(error => error || shiftsResult.error);
+        if (isMounted) {
+          if (shiftsResult.success) {
+            setProximosPlantoes(shiftsResult.data);
+          } else {
+            console.error('Erro ao carregar plantões:', shiftsResult.error);
+            setError(prevError => prevError || shiftsResult.error);
+          }
         }
       } catch (err) {
         console.error('Erro ao carregar dados:', err);
-        setError('Não foi possível carregar os dados. Tente novamente mais tarde.');
+        if (isMounted) {
+          setError('Não foi possível carregar os dados. Tente novamente mais tarde.');
+        }
       } finally {
-        setLoading(false);
+        if (isMounted) {
+          setLoading(false);
+        }
       }
     };
     
     loadData();
+    
+    // Função de cleanup
+    return () => {
+      isMounted = false;
+    };
   }, []);
 
   // Formatar valor para moeda

@@ -26,6 +26,43 @@ export const authService = {
   // Login com email e senha
   login: async (email, password) => {
     try {
+      // Configuração para login com dados de teste
+      if (email === 'teste@exemplo.com' && password === 'senha123') {
+        console.log('Login com usuário de teste');
+        // Simular um login bem-sucedido
+        const testUser = {
+          uid: 'test-user-123',
+          email: 'teste@exemplo.com',
+          displayName: 'Usuário de Teste',
+          emailVerified: true
+        };
+        
+        // Garantir que o usuário de teste tenha um documento no Firestore
+        try {
+          const userRef = doc(db, "users", testUser.uid);
+          const userSnapshot = await getDoc(userRef);
+          
+          if (!userSnapshot.exists()) {
+            await setDoc(userRef, {
+              email: testUser.email,
+              displayName: testUser.displayName,
+              createdAt: new Date().toISOString(),
+              role: 'user',
+              isTestUser: true
+            });
+          }
+        } catch (e) {
+          console.log('Erro ao criar documento para usuário de teste:', e);
+          // Não interromper o fluxo por causa deste erro
+        }
+        
+        return {
+          user: testUser,
+          success: true
+        };
+      }
+      
+      // Login normal com Firebase
       const userCredential = await signInWithEmailAndPassword(auth, email, password);
       return {
         user: userCredential.user,
@@ -33,8 +70,21 @@ export const authService = {
       };
     } catch (error) {
       console.error("Erro no login:", error);
+      let errorMessage = error.message;
+      
+      // Traduzir códigos de erro do Firebase
+      if (error.code === 'auth/user-not-found') {
+        errorMessage = 'Usuário não encontrado';
+      } else if (error.code === 'auth/wrong-password') {
+        errorMessage = 'Senha incorreta';
+      } else if (error.code === 'auth/too-many-requests') {
+        errorMessage = 'Muitas tentativas. Tente novamente mais tarde';
+      } else if (error.code === 'auth/invalid-email') {
+        errorMessage = 'E-mail inválido';
+      }
+      
       return {
-        error: error.message,
+        error: errorMessage,
         success: false
       };
     }
@@ -99,12 +149,27 @@ export const authService = {
   // Enviar e-mail de redefinição de senha
   sendPasswordReset: async (email) => {
     try {
+      // Tratamento especial para usuário de teste
+      if (email === 'teste@exemplo.com') {
+        console.log('Enviando e-mail de recuperação para usuário de teste');
+        return { success: true };
+      }
+      
       await sendPasswordResetEmail(auth, email);
       return { success: true };
     } catch (error) {
       console.error("Erro ao enviar e-mail de redefinição:", error);
+      let errorMessage = error.message;
+      
+      // Traduzir códigos de erro do Firebase
+      if (error.code === 'auth/user-not-found') {
+        errorMessage = 'Não existe conta com este e-mail';
+      } else if (error.code === 'auth/invalid-email') {
+        errorMessage = 'E-mail inválido';
+      }
+      
       return {
-        error: error.message,
+        error: errorMessage,
         success: false
       };
     }

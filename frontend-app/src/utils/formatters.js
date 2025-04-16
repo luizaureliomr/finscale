@@ -1,19 +1,119 @@
 /**
- * Utilitários para formatação de valores
+ * Utilitários para formatação de dados
  */
 
 /**
- * Formata um valor numérico para moeda brasileira (R$)
- * @param {number} value - O valor a ser formatado
- * @returns {string} - Valor formatado como moeda
+ * Formata um valor numérico para moeda brasileira
+ * @param {number} value - Valor a ser formatado
+ * @returns {string} Valor formatado como moeda (ex: R$ 1.234,56)
  */
 export const formatCurrency = (value) => {
-  if (value === null || value === undefined) return 'R$ 0,00';
+  return value.toLocaleString('pt-BR', { 
+    style: 'currency', 
+    currency: 'BRL' 
+  });
+};
+
+/**
+ * Converte uma string de data no formato ISO para formato brasileiro
+ * @param {string} dateString - Data no formato ISO (YYYY-MM-DD)
+ * @returns {string} Data no formato brasileiro (DD/MM/YYYY)
+ */
+export const formatDateBR = (dateString) => {
+  if (!dateString) return '';
   
-  return new Intl.NumberFormat('pt-BR', {
-    style: 'currency',
-    currency: 'BRL',
-  }).format(value);
+  // Se for um objeto Date, converte para string ISO
+  if (dateString instanceof Date) {
+    dateString = dateString.toISOString();
+  }
+  
+  // Verifica se a data está no formato ISO
+  if (dateString && typeof dateString === 'string' && dateString.includes('-')) {
+    const [year, month, day] = dateString.split('T')[0].split('-');
+    return `${day}/${month}/${year}`;
+  }
+  
+  return dateString; // Retorna a string original se não estiver no formato esperado
+};
+
+/**
+ * Converte um timestamp do Firebase para formato brasileiro
+ * @param {Object} timestamp - Timestamp do Firestore
+ * @returns {string} Data no formato brasileiro (DD/MM/YYYY)
+ */
+export const formatTimestampBR = (timestamp) => {
+  if (!timestamp) return '';
+  
+  try {
+    // Verificar se é um timestamp do Firestore
+    if (timestamp && timestamp.toDate && typeof timestamp.toDate === 'function') {
+      const date = timestamp.toDate();
+      return formatDateBR(date.toISOString());
+    }
+    
+    return '';
+  } catch (error) {
+    console.error('Erro ao formatar timestamp:', error);
+    return '';
+  }
+};
+
+/**
+ * Converte número para string com formatação de moeda
+ * @param {string|number} value - Valor numérico ou string a ser formatada
+ * @returns {string} Valor formatado como moeda sem o símbolo (ex: 1.234,56)
+ */
+export const formatNumberAsCurrency = (value) => {
+  if (!value) return '0,00';
+  
+  // Certifica que estamos trabalhando com um número
+  const numValue = typeof value === 'string' 
+    ? parseFloat(value.replace(/[^\d,.-]/g, '').replace(',', '.'))
+    : value;
+    
+  if (isNaN(numValue)) return '0,00';
+  
+  return numValue.toLocaleString('pt-BR', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
+  });
+};
+
+/**
+ * Converte string formatada como moeda para número
+ * @param {string} value - String formatada (ex: "R$ 1.234,56" ou "1.234,56")
+ * @returns {number} Valor numérico
+ */
+export const currencyToNumber = (value) => {
+  if (!value) return 0;
+  
+  // Remove símbolo de moeda e caracteres não numéricos, exceto vírgula e ponto
+  const cleanValue = value.toString().replace(/[^\d,.-]/g, '');
+  
+  // Converte padrão brasileiro (1.234,56) para padrão JS (1234.56)
+  const normalizedValue = cleanValue.replace('.', '').replace(',', '.');
+  
+  return parseFloat(normalizedValue);
+};
+
+/**
+ * Formata um número de telefone
+ * @param {string} phone - Número de telefone (somente dígitos)
+ * @returns {string} Número formatado ((99) 99999-9999)
+ */
+export const formatPhone = (phone) => {
+  if (!phone) return '';
+  
+  // Remove caracteres não numéricos
+  const digits = phone.replace(/\D/g, '');
+  
+  if (digits.length <= 10) {
+    // Formato (99) 9999-9999
+    return digits.replace(/(\d{2})(\d{4})(\d{4})/, '($1) $2-$3');
+  } else {
+    // Formato (99) 99999-9999
+    return digits.replace(/(\d{2})(\d{5})(\d{4})/, '($1) $2-$3');
+  }
 };
 
 /**
@@ -50,25 +150,6 @@ export const formatDateTime = (date) => {
 export const isoToDate = (isoString) => {
   if (!isoString) return null;
   return new Date(isoString);
-};
-
-/**
- * Formata um número de telefone para o formato brasileiro
- * @param {string} phone - Número de telefone (somente dígitos)
- * @returns {string} - Telefone formatado
- */
-export const formatPhone = (phone) => {
-  if (!phone) return '';
-  
-  const cleaned = phone.replace(/\D/g, '');
-  
-  if (cleaned.length === 11) {
-    return `(${cleaned.slice(0, 2)}) ${cleaned.slice(2, 7)}-${cleaned.slice(7)}`;
-  } else if (cleaned.length === 10) {
-    return `(${cleaned.slice(0, 2)}) ${cleaned.slice(2, 6)}-${cleaned.slice(6)}`;
-  }
-  
-  return phone;
 };
 
 /**

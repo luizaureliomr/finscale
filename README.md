@@ -1,112 +1,198 @@
-# Finscale - Gestão de Plantões Médicos
-
-Finscale é uma aplicação completa para gerenciamento de plantões médicos, finanças e estatísticas para profissionais da área médica.
-
-## Descrição
-
-O Finscale foi desenvolvido para auxiliar médicos a gerenciar seus plantões, controlar suas finanças e visualizar estatísticas relevantes sobre seu trabalho. O sistema conta com:
-
-- Autenticação segura com Firebase
-- Gestão de plantões (agendamento, edição, exclusão)
-- Painel financeiro com visualização de ganhos
-- Estatísticas e gráficos sobre plantões e rendimentos
-- Suporte a notificações para lembrar de plantões agendados
-- Modo offline para operações mesmo sem conexão
+# Finscale - Sistema de Gestão de Plantões Médicos
 
 ## Estrutura do Projeto
 
 O projeto está dividido em duas partes principais:
-
-- **frontend-app**: Aplicação móvel desenvolvida com React Native e Expo
-- **backend**: API REST desenvolvida com Node.js e PostgreSQL
+- **Backend**: API RESTful em Node.js com Express
+- **Frontend**: Aplicação React Native com Expo
 
 ## Requisitos
 
-### Frontend
-- Node.js 14+
-- Expo CLI
-- React Native
-- Configuração Firebase (autenticação e Firestore)
+- Node.js (v18+)
+- npm (v9+)
+- PostgreSQL 
+- Firebase (para autenticação e armazenamento)
+
+## Configuração Inicial
+
+### Firebase
+
+1. Criar um projeto no Firebase Console:
+   - Acesse [console.firebase.google.com](https://console.firebase.google.com/)
+   - Clique em "Adicionar projeto" ou "Criar projeto"
+   - Nomeie o projeto como "Finscale" (ou outro nome de sua preferência)
+   - Siga as instruções para concluir a criação
+
+2. Configurar autenticação:
+   - No menu lateral, clique em "Authentication"
+   - Clique em "Começar" ou "Set up sign-in method"
+   - Ative o provedor "Email/senha"
+   - Opcionalmente, ative o Google e outros provedores
+
+3. Configurar Firebase Admin SDK (para o backend):
+   - No menu lateral, clique em "Configurações do projeto" (ícone de engrenagem)
+   - Vá para a aba "Contas de serviço"
+   - Clique em "Gerar nova chave privada"
+   - Baixe o arquivo JSON
+   - Renomeie para `firebase-credentials.json` e coloque na raiz da pasta `/backend`
+
+4. Configurar Firebase SDK para Web (para o frontend):
+   - No menu lateral, clique em "Configurações do projeto" (ícone de engrenagem)
+   - Vá para a aba "Geral"
+   - Role para baixo até encontrar a seção "Seus aplicativos"
+   - Clique no ícone da web (</>) para adicionar um app web
+   - Registre o app com o nome "Finscale Web"
+   - Copie o objeto de configuração (apiKey, authDomain, etc.)
+   - Substitua no arquivo `firebase-config.js` da pasta `/frontend`
 
 ### Backend
-- Node.js 14+
-- PostgreSQL 12+
-- npm ou yarn
 
-## Configuração
-
-### Frontend
-
-1. Instale as dependências:
-```
-cd frontend-app
-npm install
-```
-
-2. Configure o Firebase:
-```
-cp firebase.config.example.js firebase.config.js
-```
-Edite o arquivo `firebase.config.js` com suas credenciais.
-
-3. Inicie o aplicativo:
-```
-npm start
-```
-
-### Backend
-
-1. Instale as dependências:
-```
+1. Instalação de dependências:
+```bash
 cd backend
 npm install
 ```
 
-2. Configure o banco de dados:
-```
-cp .env.example .env
-```
-Edite o arquivo `.env` com suas configurações.
+2. Configure as variáveis de ambiente:
+Crie um arquivo `.env` baseado no modelo existente e ajuste conforme necessário.
 
-3. Execute o script de configuração do banco de dados:
-```
-npm run setup-db
-```
-ou execute manualmente:
-```
-cd backend
-setup-database.bat
+3. Configure o banco de dados PostgreSQL:
+```bash
+# Instalar PostgreSQL (se ainda não estiver instalado)
+# Windows: Faça download e instale do site oficial https://www.postgresql.org/download/windows/
+# Linux: sudo apt-get install postgresql postgresql-contrib
+# MacOS: brew install postgresql
+
+# Criar o banco de dados 'finscale'
+psql -U postgres
+CREATE DATABASE finscale;
+\c finscale
+
+# Execute o script SQL para criar as tabelas
+# A partir da pasta backend:
+psql -U postgres -d finscale -f src/models/database.sql
 ```
 
-4. Inicie o servidor:
-```
+4. Configuração do Firebase:
+Substitua o arquivo `firebase-credentials.json` na raiz da pasta backend com as credenciais do seu projeto Firebase.
+
+5. Inicie o servidor em modo de desenvolvimento:
+```bash
 npm run dev
 ```
 
-## Funcionalidades Principais
+### Frontend
 
-- **Login e Cadastro**: Sistema completo de autenticação
-- **Dashboard**: Visão geral de plantões e finanças
-- **Gestão de Plantões**: Adicionar, editar e excluir plantões
-- **Estatísticas**: Visualização gráfica de dados financeiros e de plantões
-- **Perfil**: Gestão de informações pessoais e profissionais
+1. Instalar o Expo CLI globalmente:
+```bash
+npm install -g expo-cli
+```
 
-## Tecnologias Utilizadas
+2. Inicie um novo projeto Expo:
+```bash
+cd frontend
+npm install
+```
 
-- React Native / Expo
-- Firebase (Authentication, Firestore)
-- Node.js
-- PostgreSQL
-- Chart.js para visualização de dados
+3. Instalar dependências adicionais:
+```bash
+npm install @react-navigation/native @react-navigation/stack
+npm install firebase
+```
 
-## Contribuindo
+4. Substitua as configurações do Firebase:
+Atualize o arquivo `firebase-config.js` com as credenciais do seu projeto Firebase.
 
-1. Faça um fork do projeto
-2. Crie sua branch de feature (`git checkout -b feature/nova-funcionalidade`)
-3. Commit suas mudanças (`git commit -m 'Adiciona nova funcionalidade'`)
-4. Push para a branch (`git push origin feature/nova-funcionalidade`)
-5. Abra um Pull Request
+5. Inicie o aplicativo:
+```bash
+npx expo start
+```
 
-## Licença
+## Estrutura de Diretórios
 
-Este projeto está sob a licença MIT. Veja o arquivo LICENSE para mais detalhes. 
+### Backend
+```
+backend/
+  ├── src/
+  │   ├── config/        # Configurações do aplicativo
+  │   ├── controllers/   # Controladores de rotas
+  │   ├── middlewares/   # Middlewares personalizados
+  │   ├── models/        # Modelos de dados
+  │   ├── routes/        # Definições de rotas
+  │   └── utils/         # Utilitários
+  ├── .env               # Variáveis de ambiente
+  └── package.json
+```
+
+### Frontend (a ser configurado)
+```
+frontend/
+  ├── assets/            # Recursos estáticos
+  ├── components/        # Componentes React
+  ├── navigation/        # Configuração de navegação
+  ├── screens/           # Telas do aplicativo
+  ├── services/          # Serviços e API
+  └── App.js
+```
+
+## Desenvolvimento
+
+### Scripts Disponíveis (Backend)
+
+- `npm start`: Inicia o servidor em modo de produção
+- `npm run dev`: Inicia o servidor em modo de desenvolvimento com hot-reload
+- `npm test`: Executa os testes
+- `npm run test:watch`: Executa os testes em modo de observação
+
+## Estrutura do Banco de Dados
+
+O banco de dados PostgreSQL contém as seguintes tabelas principais:
+
+- `users`: Usuários do sistema (médicos)
+- `institutions`: Hospitais e clínicas
+- `institution_units`: Unidades/setores das instituições
+- `shift_types`: Tipos de plantão (urgência, enfermaria, etc.)
+- `shift_values`: Valores de plantão por tipo e instituição
+- `shifts`: Registro de plantões agendados/realizados
+- `shift_substitutions`: Registro de substituições de plantão
+- `payments`: Pagamentos recebidos
+- `payment_details`: Detalhes dos pagamentos (relacionados aos plantões)
+- `user_tax_config`: Configuração tributária do usuário
+- `tax_obligations`: Registro de obrigações fiscais
+
+Para mais detalhes, consulte o arquivo `src/models/database.sql`.
+
+## CI/CD com GitHub Actions
+
+O projeto está configurado com GitHub Actions para Integração Contínua e Entrega Contínua (CI/CD), permitindo automação dos processos de teste e build.
+
+### Workflows Configurados
+
+1. **Frontend CI** (`.github/workflows/frontend-ci.yml`)
+   - Executa lint e testes no código frontend
+   - Realiza build da aplicação Expo Web
+   - Armazena artefatos de build para uso posterior
+
+2. **Backend CI** (`.github/workflows/backend-ci.yml`)
+   - Executa lint e testes no código backend
+   - Configura ambiente de banco de dados PostgreSQL para testes
+   - Realiza build e compactação do código para implantação
+   - Armazena artefatos de build para uso posterior
+
+### Deploy Automático (Opcional)
+
+Os arquivos de workflow incluem seções comentadas para deploy automático:
+
+- Para o **Frontend**: Deploy para Expo
+- Para o **Backend**: Deploy para um servidor via SSH
+
+Para ativar estas funcionalidades:
+
+1. Descomente as seções de deploy nos arquivos de workflow
+2. Configure os secrets necessários no repositório GitHub em Settings > Secrets and variables > Actions:
+   - Para Expo: `EXPO_USERNAME`, `EXPO_PASSWORD`
+   - Para SSH: `SSH_PRIVATE_KEY`, `SSH_USER`, `SSH_HOST`
+
+### Personalização
+
+Os workflows podem ser personalizados conforme necessário editando os arquivos YAML em `.github/workflows/`. Consulte o arquivo `configurar-github-actions.md` para detalhes adicionais. 

@@ -24,15 +24,48 @@ import {
   addDoc
 } from 'firebase/firestore';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import {
+  API_KEY,
+  AUTH_DOMAIN,
+  PROJECT_ID,
+  STORAGE_BUCKET,
+  MESSAGING_SENDER_ID,
+  APP_ID
+} from '@env';
+
+// Verificar se as variáveis de ambiente estão definidas
+const validateEnvVariables = () => {
+  const variables = [
+    { name: 'API_KEY', value: API_KEY },
+    { name: 'AUTH_DOMAIN', value: AUTH_DOMAIN },
+    { name: 'PROJECT_ID', value: PROJECT_ID },
+    { name: 'STORAGE_BUCKET', value: STORAGE_BUCKET },
+    { name: 'MESSAGING_SENDER_ID', value: MESSAGING_SENDER_ID },
+    { name: 'APP_ID', value: APP_ID }
+  ];
+  
+  const missingVariables = variables
+    .filter(variable => !variable.value)
+    .map(variable => variable.name);
+    
+  if (missingVariables.length > 0) {
+    console.error(`Erro: As seguintes variáveis de ambiente estão faltando: ${missingVariables.join(', ')}`);
+    console.error('Por favor, verifique se o arquivo .env está configurado corretamente.');
+    throw new Error('Variáveis de ambiente do Firebase estão faltando');
+  }
+};
+
+// Executar validação
+validateEnvVariables();
 
 // Configuração do Firebase
 const firebaseConfig = {
-  apiKey: "AIzaSyDFrkKa7Xz_JtXx0vPNrJr9WxJX9c38HAs",
-  authDomain: "finscale-app.firebaseapp.com",
-  projectId: "finscale-app",
-  storageBucket: "finscale-app.appspot.com",
-  messagingSenderId: "345127899012",
-  appId: "1:345127899012:web:2d3f7b5a5e5b5a5e5b5a5e"
+  apiKey: API_KEY,
+  authDomain: AUTH_DOMAIN,
+  projectId: PROJECT_ID,
+  storageBucket: STORAGE_BUCKET,
+  messagingSenderId: MESSAGING_SENDER_ID,
+  appId: APP_ID
 };
 
 // Inicializar Firebase

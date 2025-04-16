@@ -14,13 +14,12 @@ import {
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { useAuth } from '../../contexts/AuthContext';
-import shiftService from '../../services/shiftService';
+import { useFocusEffect } from '@react-navigation/native';
+import { Ionicons } from '@expo/vector-icons';
+import ApiService from '../../services/apiService';
+import { MockService } from '../../services/mockService';
 import MaskedInput, { MASKS, formatters, validators } from '../../components/form/MaskedInput';
 import TimeRangeInput from '../../components/form/TimeRangeInput';
-import { Ionicons } from '@expo/vector-icons';
-import { useFocusEffect } from '@react-navigation/native';
-import firestore from '@react-native-firebase/firestore';
-import auth from '@react-native-firebase/auth';
 import notificationService from '../../services/notificationService';
 import { formatCurrency } from '../../utils/formatters';
 
@@ -30,25 +29,33 @@ const ShiftItem = ({ shift, onEdit, onDelete }) => (
     <View style={styles.shiftHeader}>
       <Text style={styles.shiftInstitution}>{shift.institution}</Text>
       <View style={[styles.statusBadge, 
-        shift.status === 'Concluído' 
+        shift.status === 'completed' 
           ? styles.completedBadge 
-          : shift.status === 'Confirmado' 
+          : shift.status === 'booked' 
             ? styles.confirmedBadge 
             : styles.pendingBadge
       ]}>
-        <Text style={styles.statusText}>{shift.status}</Text>
+        <Text style={styles.statusText}>
+          {shift.status === 'completed' 
+            ? 'Concluído' 
+            : shift.status === 'booked' 
+              ? 'Confirmado' 
+              : 'Pendente'}
+        </Text>
       </View>
     </View>
     
     <View style={styles.shiftDetails}>
       <View style={styles.detailRow}>
         <Text style={styles.detailLabel}>Data:</Text>
-        <Text style={styles.detailValue}>{formatDate(shift.date)}</Text>
+        <Text style={styles.detailValue}>
+          {new Date(shift.date).toLocaleDateString('pt-BR')}
+        </Text>
       </View>
       
       <View style={styles.detailRow}>
-        <Text style={styles.detailLabel}>Horário:</Text>
-        <Text style={styles.detailValue}>{shift.time}</Text>
+        <Text style={styles.detailLabel}>Departamento:</Text>
+        <Text style={styles.detailValue}>{shift.department}</Text>
       </View>
       
       <View style={styles.detailRow}>
@@ -109,24 +116,17 @@ const ShiftFilters = ({ activeFilter, onFilterChange }) => {
   );
 };
 
-// Formatar data YYYY-MM-DD para DD/MM/YYYY
-const formatDate = (dateString) => {
-  return formatters.isoToDate(dateString);
-};
-
 // Tela principal de plantões
 const ShiftsScreen = ({ navigation }) => {
-  const { userData } = useAuth();
+  const { user } = useAuth();
   const [shifts, setShifts] = useState([]);
   const [filteredShifts, setFilteredShifts] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [loadingAction, setLoadingAction] = useState(false);
   const [modalVisible, setModalVisible] = useState(false);
   const [currentShift, setCurrentShift] = useState(null);
   const [filter, setFilter] = useState('Todos');
   const [error, setError] = useState(null);
   const [refreshing, setRefreshing] = useState(false);
-  const [scheduledNotifications, setScheduledNotifications] = useState({});
   
   // Estados para o formulário
   const [institution, setInstitution] = useState('');
@@ -145,73 +145,81 @@ const ShiftsScreen = ({ navigation }) => {
     value: ''
   });
   
-  // Função para carregar os plantões do Firebase
+  // Função para carregar os plantões usando o MockService
   const loadShifts = useCallback(async () => {
     try {
       setLoading(true);
-      const userId = auth().currentUser?.uid;
       
-      if (!userId) {
-        Alert.alert('Erro', 'Usuário não autenticado');
-        setLoading(false);
-        return;
-      }
-      
-      const shiftsSnapshot = await firestore()
-        .collection('shifts')
-        .where('userId', '==', userId)
-        .orderBy('date', 'desc')
-        .get();
-      
-      const shiftsData = shiftsSnapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data(),
-        // Garante que a data é um objeto Date para comparações
-        date: doc.data().date?.toDate ? doc.data().date.toDate() : new Date(doc.data().date)
-      }));
+      // Usar API Service ou Mock Service
+      const shiftsData = await ApiService.getUserShifts(user?.id || 'mock-user-1');
       
       setShifts(shiftsData);
-      
-      // Carregar notificações agendadas
-      loadScheduledNotifications();
+      applyFilter(shiftsData, filter);
     } catch (error) {
       console.error('Erro ao carregar plantões:', error);
-      Alert.alert('Erro', 'Não foi possível carregar seus plantões');
+      setError('Não foi possível carregar seus plantões');
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  }, []);
+  }, [filter, user]);
 
-  // Carregar notificações agendadas
-  const loadScheduledNotifications = async () => {
-    try {
-      const result = await notificationService.getScheduledNotifications();
-      
-      if (result.success) {
-        // Criar um objeto mapeando ID do plantão -> ID da notificação
-        const notificationsMap = {};
-        result.notifications.forEach(notification => {
-          const shiftId = notification.content.data?.shiftId;
-          if (shiftId) {
-            notificationsMap[shiftId] = notification.identifier;
-          }
-        });
-        
-        setScheduledNotifications(notificationsMap);
-      }
-    } catch (error) {
-      console.error('Erro ao carregar notificações agendadas:', error);
-    }
-  };
-  
   // Carregar dados quando a tela ganhar foco
   useFocusEffect(
     useCallback(() => {
       loadShifts();
     }, [loadShifts])
   );
-  
+
+  // Aplicar filtro nos plantões
+  const applyFilter = (shiftsData, selectedFilter) => {
+    if (selectedFilter === 'Todos') {
+      setFilteredShifts(shiftsData);
+    } else if (selectedFilter === 'Pendentes') {
+      setFilteredShifts(shiftsData.filter(shift => shift.status === 'available'));
+    } else if (selectedFilter === 'Confirmados') {
+      setFilteredShifts(shiftsData.filter(shift => shift.status === 'booked'));
+    } else if (selectedFilter === 'Concluídos') {
+      setFilteredShifts(shiftsData.filter(shift => shift.status === 'completed'));
+    }
+  };
+
+  // Mudar filtro
+  const handleFilterChange = (selectedFilter) => {
+    setFilter(selectedFilter);
+    applyFilter(shifts, selectedFilter);
+  };
+
+  // Atualizar lista de plantões
+  const handleRefresh = () => {
+    setRefreshing(true);
+    loadShifts();
+  };
+
+  // Excluir plantão
+  const handleDeleteShift = (shift) => {
+    Alert.alert(
+      'Excluir Plantão',
+      'Tem certeza que deseja excluir este plantão?',
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        { 
+          text: 'Excluir', 
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await ApiService.cancelShift(shift.id, user?.id);
+              Alert.alert('Sucesso', 'Plantão excluído com sucesso!');
+              loadShifts();
+            } catch (error) {
+              Alert.alert('Erro', 'Não foi possível excluir o plantão.');
+            }
+          }
+        }
+      ]
+    );
+  };
+
   // Abrir modal para adicionar novo plantão
   const handleAddShift = () => {
     setCurrentShift(null);
@@ -235,7 +243,7 @@ const ShiftsScreen = ({ navigation }) => {
   const handleEditShift = (shift) => {
     setCurrentShift(shift);
     setInstitution(shift.institution);
-    setDate(formatDate(shift.date));
+    setDate(formatters.dateToISO(shift.date));
     setTime(shift.time);
     setDuration(shift.duration.toString());
     setValue(shift.value.toString());
@@ -311,7 +319,7 @@ const ShiftsScreen = ({ navigation }) => {
       return;
     }
     
-    setLoadingAction(true);
+    setLoading(true);
     
     try {
       // Criar objeto do plantão (convertendo formatos)
@@ -328,10 +336,10 @@ const ShiftsScreen = ({ navigation }) => {
       
       if (currentShift) {
         // Atualizar plantão existente
-        result = await shiftService.updateShift(currentShift.id, shiftData);
+        result = await ApiService.updateShift(currentShift.id, shiftData);
       } else {
         // Adicionar novo plantão
-        result = await shiftService.addShift(shiftData);
+        result = await ApiService.addShift(shiftData);
       }
       
       if (result.success) {
@@ -350,103 +358,7 @@ const ShiftsScreen = ({ navigation }) => {
       console.error('Erro ao salvar plantão:', error);
       Alert.alert('Erro', error.message || 'Não foi possível salvar o plantão. Tente novamente mais tarde.');
     } finally {
-      setLoadingAction(false);
-    }
-  };
-  
-  // Excluir plantão
-  const handleDeleteShift = (shift) => {
-    Alert.alert(
-      'Excluir plantão',
-      `Tem certeza que deseja excluir o plantão em ${shift.institution} no dia ${formatDate(shift.date)}?`,
-      [
-        { text: 'Cancelar', style: 'cancel' },
-        { 
-          text: 'Excluir', 
-          style: 'destructive',
-          onPress: async () => {
-            setLoadingAction(true);
-            
-            try {
-              const result = await shiftService.deleteShift(shift.id);
-              
-              if (result.success) {
-                Alert.alert('Sucesso', 'Plantão excluído com sucesso');
-                loadShifts(); // Recarregar lista de plantões
-              } else {
-                throw new Error(result.error || 'Erro ao excluir plantão');
-              }
-            } catch (error) {
-              console.error('Erro ao excluir plantão:', error);
-              Alert.alert('Erro', error.message || 'Não foi possível excluir o plantão. Tente novamente mais tarde.');
-            } finally {
-              setLoadingAction(false);
-            }
-          }
-        }
-      ]
-    );
-  };
-  
-  // Função para agendar uma notificação para um plantão
-  const scheduleNotification = async (shift) => {
-    try {
-      // Verificar se já existe uma notificação agendada para este plantão
-      if (scheduledNotifications[shift.id]) {
-        Alert.alert(
-          'Notificação existente',
-          'Já existe uma notificação agendada para este plantão. Deseja cancelá-la?',
-          [
-            {
-              text: 'Não',
-              style: 'cancel',
-            },
-            {
-              text: 'Sim',
-              onPress: async () => {
-                const result = await notificationService.cancelNotification(
-                  scheduledNotifications[shift.id]
-                );
-                
-                if (result.success) {
-                  // Atualizar o estado removendo a notificação
-                  setScheduledNotifications(prev => {
-                    const updated = { ...prev };
-                    delete updated[shift.id];
-                    return updated;
-                  });
-                  
-                  Alert.alert('Sucesso', 'Notificação cancelada com sucesso');
-                } else {
-                  Alert.alert('Erro', `Não foi possível cancelar a notificação: ${result.error}`);
-                }
-              },
-            },
-          ]
-        );
-        return;
-      }
-      
-      // Agendar nova notificação
-      const result = await notificationService.scheduleShiftNotification(shift);
-      
-      if (result.success) {
-        // Atualizar o estado adicionando a nova notificação
-        setScheduledNotifications(prev => ({
-          ...prev,
-          [shift.id]: result.notificationId,
-        }));
-        
-        Alert.alert(
-          'Sucesso',
-          'Notificação agendada para 2 horas antes do plantão'
-        );
-      } else {
-        Alert.alert('Erro', `Não foi possível agendar a notificação: ${result.error}`);
-      }
-    } catch (error) {
-      console.error('Erro ao gerenciar notificação:', error);
-      Alert.alert('Erro', 'Ocorreu um erro ao gerenciar a notificação');
+      setLoading(false);
     }
   };
   
@@ -563,7 +475,7 @@ const ShiftsScreen = ({ navigation }) => {
               <TouchableOpacity
                 style={[styles.modalButton, styles.cancelModalButton]}
                 onPress={() => setModalVisible(false)}
-                disabled={loadingAction}
+                disabled={loading}
               >
                 <Text style={styles.modalButtonText}>Cancelar</Text>
               </TouchableOpacity>
@@ -571,9 +483,9 @@ const ShiftsScreen = ({ navigation }) => {
               <TouchableOpacity
                 style={[styles.modalButton, styles.saveModalButton]}
                 onPress={handleSaveShift}
-                disabled={loadingAction}
+                disabled={loading}
               >
-                {loadingAction ? (
+                {loading ? (
                   <ActivityIndicator color="#fff" />
                 ) : (
                   <Text style={styles.modalButtonText}>Salvar</Text>
@@ -586,12 +498,32 @@ const ShiftsScreen = ({ navigation }) => {
     </Modal>
   );
   
+  if (loading && !refreshing) {
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color="#2196F3" />
+        <Text style={styles.loadingText}>Carregando plantões...</Text>
+      </View>
+    );
+  }
+
+  if (error) {
+    return (
+      <View style={styles.errorContainer}>
+        <Text style={styles.errorText}>{error}</Text>
+        <TouchableOpacity style={styles.retryButton} onPress={loadShifts}>
+          <Text style={styles.retryButtonText}>Tentar novamente</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
+
   return (
     <View style={styles.container}>
       <StatusBar style="auto" />
       
       <View style={styles.header}>
-        <Text style={styles.title}>Meus Plantões</Text>
+        <Text style={styles.headerTitle}>Meus Plantões</Text>
         <TouchableOpacity 
           style={styles.addButton}
           onPress={handleAddShift}
@@ -601,26 +533,16 @@ const ShiftsScreen = ({ navigation }) => {
       </View>
       
       <ShiftFilters 
-        activeFilter={filter}
-        onFilterChange={setFilter}
+        activeFilter={filter} 
+        onFilterChange={handleFilterChange}
       />
       
-      {loading && !refreshing ? (
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#1976D2" />
-          <Text style={styles.loadingText}>Carregando plantões...</Text>
-        </View>
-      ) : filteredShifts.length === 0 ? (
+      {filteredShifts.length === 0 ? (
         <View style={styles.emptyContainer}>
+          <Ionicons name="calendar-outline" size={64} color="#ccc" />
           <Text style={styles.emptyText}>
-            Nenhum plantão {filter !== 'Todos' ? filter.toLowerCase() : ''} encontrado
+            Nenhum plantão {filter.toLowerCase() === 'todos' ? '' : filter.toLowerCase()} encontrado
           </Text>
-          <TouchableOpacity
-            style={styles.addEmptyButton}
-            onPress={handleAddShift}
-          >
-            <Text style={styles.addEmptyButtonText}>Adicionar Plantão</Text>
-          </TouchableOpacity>
         </View>
       ) : (
         <FlatList
@@ -634,17 +556,18 @@ const ShiftsScreen = ({ navigation }) => {
             />
           )}
           contentContainerStyle={styles.listContainer}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={handleRefresh}
+              colors={['#2196F3']}
+            />
+          }
         />
       )}
       
       {/* Modal para adicionar/editar plantões */}
       {renderModal()}
-      
-      {error && (
-        <View style={styles.errorContainer}>
-          <Text style={styles.errorText}>{error}</Text>
-        </View>
-      )}
     </View>
   );
 };
@@ -663,7 +586,7 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: '#e6e6e6',
   },
-  title: {
+  headerTitle: {
     fontSize: 22,
     fontWeight: 'bold',
     color: '#2c3e50',
@@ -816,16 +739,6 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginBottom: 20,
   },
-  addEmptyButton: {
-    backgroundColor: '#3498db',
-    paddingHorizontal: 20,
-    paddingVertical: 10,
-    borderRadius: 8,
-  },
-  addEmptyButtonText: {
-    color: '#fff',
-    fontWeight: '600',
-  },
   modalContainer: {
     flex: 1,
     justifyContent: 'center',
@@ -928,10 +841,15 @@ const styles = StyleSheet.create({
     borderLeftWidth: 4,
     borderLeftColor: '#e74c3c',
   },
-  errorText: {
-    color: '#c0392b',
-    fontSize: 14,
-    lineHeight: 20,
+  retryButton: {
+    backgroundColor: '#2196F3',
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    borderRadius: 4,
+  },
+  retryButtonText: {
+    color: '#fff',
+    fontWeight: 'bold',
   }
 });
 

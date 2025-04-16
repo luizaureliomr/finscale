@@ -10,6 +10,10 @@ dist/
 web-build/
 .DS_Store
 
+# TypeScript
+*.tsbuildinfo
+tsconfig.tsbuildinfo
+
 # Ambiente
 .env
 .env.local
@@ -25,8 +29,22 @@ GoogleService-Info.plist
 
 # Build
 ios/Pods
+ios/build
+ios/DerivedData
+ios/*.xcworkspace
+ios/*.xcuserstate
+ios/*.ipa
+ios/*.dSYM.zip
 android/app/build
 android/.gradle
+android/build
+android/local.properties
+android/app/release
+
+# Testes
+coverage/
+.jest/
+__tests__/__snapshots__/
 
 # IDE/Editores
 .idea/

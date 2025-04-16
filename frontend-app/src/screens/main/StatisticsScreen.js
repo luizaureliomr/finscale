@@ -1,208 +1,155 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
-  StyleSheet, 
-  Text, 
-  View, 
-  TouchableOpacity, 
-  ScrollView, 
-  Dimensions, 
+  View,
+  Text,
+  StyleSheet,
+  ScrollView,
   ActivityIndicator,
-  SafeAreaView
+  Dimensions,
+  RefreshControl,
+  SafeAreaView,
+  TouchableOpacity
 } from 'react-native';
-import { StatusBar } from 'expo-status-bar';
-import { useAuth } from '../../contexts/AuthContext';
-import { 
-  LineChart, 
-  BarChart, 
-  PieChart 
-} from 'react-native-chart-kit';
-import shiftService from '../../services/shiftService';
+import { LineChart, BarChart, PieChart } from 'react-native-chart-kit';
+import ApiService, { showApiError } from '../../services/apiService';
+import { MockService } from '../../services/mockService';
+import { colors } from '../../theme';
+import { useFocusEffect } from '@react-navigation/native';
+import { MaterialIcons } from '@expo/vector-icons';
 
-const screenWidth = Dimensions.get('window').width;
+const { width } = Dimensions.get('window');
 
-const StatisticsScreen = ({ navigation }) => {
-  const { userData, user } = useAuth();
-  const [activeTab, setActiveTab] = useState('income');
+const PERIODS = {
+  WEEK: 'week',
+  MONTH: 'month',
+  YEAR: 'year'
+};
+
+const StatisticsScreen = () => {
   const [loading, setLoading] = useState(true);
-  const [stats, setStats] = useState({ totalShifts: 0, totalHours: 0, totalValue: 0 });
-  const [shifts, setShifts] = useState([]);
+  const [refreshing, setRefreshing] = useState(false);
+  const [statistics, setStatistics] = useState(null);
+  const [period, setPeriod] = useState(PERIODS.YEAR);
   const [error, setError] = useState(null);
-  
-  const userName = userData?.displayName || user?.displayName || 'Usuário';
-  
-  // Formatar valor para moeda - Memoizado para evitar recriação a cada renderização
-  const formatCurrency = useCallback((value) => {
-    return value.toLocaleString('pt-BR', { 
-      style: 'currency', 
-      currency: 'BRL' 
-    });
-  }, []);
-  
-  // Carregar dados dos plantões - Memoizado para evitar recriação a cada renderização
-  const loadData = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    
+  const [userId, setUserId] = useState(null);
+
+  const fetchStatistics = useCallback(async (selectedPeriod = period) => {
     try {
-      // Carregar estatísticas
-      const statsResult = await shiftService.getShiftStats();
-      if (statsResult.success) {
-        setStats(statsResult.data);
-      } else {
-        console.error('Erro ao carregar estatísticas:', statsResult.error);
-        setError(statsResult.error);
+      setError(null);
+      if (!refreshing) setLoading(true);
+
+      if (!userId) {
+        const currentUser = await ApiService.getCurrentUser();
+        if (currentUser) {
+          setUserId(currentUser.id);
+        } else {
+          throw new Error('Não foi possível obter o usuário atual');
+        }
       }
-      
-      // Carregar todos os plantões para gerar gráficos
-      const shiftsResult = await shiftService.getUserShifts();
-      if (shiftsResult.success) {
-        setShifts(shiftsResult.data);
-      } else {
-        console.error('Erro ao carregar plantões:', shiftsResult.error);
-        setError(error => error || shiftsResult.error);
-      }
+
+      const stats = await ApiService.getUserStatistics(userId, selectedPeriod);
+      setStatistics(stats);
     } catch (err) {
-      console.error('Erro ao carregar dados:', err);
-      setError('Não foi possível carregar os dados. Tente novamente mais tarde.');
+      console.error('Erro ao obter estatísticas:', err);
+      setError(err.message || 'Não foi possível carregar as estatísticas');
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
-  }, []);
-  
-  // Carregar dados na montagem do componente
-  useEffect(() => {
-    loadData();
-  }, [loadData]);
-  
-  // Processar dados para gráficos - Memoizado para evitar recálculos desnecessários
-  const processChartData = useCallback(() => {
-    // Dados para o gráfico de linha (valor por mês)
-    const monthNames = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
-    const monthlyValues = Array(12).fill(0);
-    const monthlyHours = Array(12).fill(0);
-    const monthlyShifts = Array(12).fill(0);
-    
-    // Dados para o gráfico de setores (por instituição)
-    const institutionMap = new Map();
-    
-    // Processar os plantões
-    shifts.forEach(shift => {
-      if (shift.date) {
-        let date;
-        
-        // Lidar com diferentes formatos de data
-        if (typeof shift.date === 'string') {
-          // Data em formato string (ISO)
-          date = new Date(shift.date);
-        } else if (shift.date.toDate && typeof shift.date.toDate === 'function') {
-          // Timestamp do Firestore
-          date = shift.date.toDate();
-        } else if (shift.date instanceof Date) {
-          // Já é um objeto Date
-          date = shift.date;
-        } else {
-          // Tentativa de fallback
-          try {
-            date = new Date(shift.date);
-          } catch (e) {
-            console.error("Formato de data não suportado:", shift.date);
-            return; // Pular este plantão
+  }, [period, userId, refreshing]);
+
+  useFocusEffect(
+    useCallback(() => {
+      fetchStatistics();
+    }, [fetchStatistics])
+  );
+
+  const handlePeriodChange = (newPeriod) => {
+    setPeriod(newPeriod);
+    fetchStatistics(newPeriod);
+  };
+
+  const handleRefresh = useCallback(() => {
+    setRefreshing(true);
+    fetchStatistics();
+  }, [fetchStatistics]);
+
+  const getEarningsChartData = () => {
+    if (!statistics || !statistics.earnings) return null;
+
+    if (period === PERIODS.WEEK) {
+      return {
+        labels: ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'],
+        datasets: [
+          {
+            data: statistics.earnings.slice(-7).map(item => item.value),
+            color: (opacity = 1) => `rgba(41, 128, 185, ${opacity})`,
           }
-        }
-        
-        // Verificar se a data é válida
-        if (isNaN(date.getTime())) {
-          console.error("Data inválida:", shift.date);
-          return; // Pular este plantão
-        }
-        
-        const month = date.getMonth();
-        
-        // Adicionar valor ao mês
-        monthlyValues[month] += parseFloat(shift.value || 0);
-        
-        // Adicionar horas ao mês
-        monthlyHours[month] += parseInt(shift.duration || 0, 10);
-        
-        // Adicionar contagem de plantões ao mês
-        monthlyShifts[month] += 1;
-        
-        // Adicionar à instituição
-        if (shift.institution) {
-          const currentValue = institutionMap.get(shift.institution) || 0;
-          institutionMap.set(shift.institution, currentValue + parseFloat(shift.value || 0));
-        }
-      }
-    });
-    
-    // Dados para o gráfico de linha de valor
-    const incomeData = {
-      labels: monthNames,
-      datasets: [
-        {
-          data: monthlyValues,
-          color: (opacity = 1) => `rgba(52, 152, 219, ${opacity})`,
-          strokeWidth: 2
-        }
-      ],
-      legend: ["Valor Mensal (R$)"]
-    };
-    
-    // Dados para o gráfico de barras de horas
-    const hoursData = {
-      labels: monthNames,
-      datasets: [
-        {
-          data: monthlyHours,
-          color: (opacity = 1) => `rgba(46, 204, 113, ${opacity})`,
-          strokeWidth: 2
-        }
-      ],
-      legend: ["Horas Mensais"]
-    };
-    
-    // Dados para o gráfico de barras de quantidade
-    const shiftsData = {
-      labels: monthNames,
-      datasets: [
-        {
-          data: monthlyShifts,
-          color: (opacity = 1) => `rgba(155, 89, 182, ${opacity})`,
-          strokeWidth: 2
-        }
-      ],
-      legend: ["Plantões por Mês"]
-    };
-    
-    // Dados para o gráfico de pizza por instituição
-    const pieData = [];
-    const colors = ['#3498db', '#2ecc71', '#9b59b6', '#e74c3c', '#f39c12', '#1abc9c', '#d35400', '#34495e'];
-    
-    let index = 0;
-    institutionMap.forEach((value, name) => {
-      pieData.push({
-        name: name.length > 15 ? name.substring(0, 15) + '...' : name,
-        population: value,
-        color: colors[index % colors.length],
-        legendFontColor: '#7F7F7F',
-        legendFontSize: 12
-      });
-      index++;
-    });
-    
+        ]
+      };
+    }
+
+    if (period === PERIODS.MONTH) {
+      return {
+        labels: ['Sem 1', 'Sem 2', 'Sem 3', 'Sem 4'],
+        datasets: [
+          {
+            data: statistics.earnings.slice(-4).map(item => item.value),
+            color: (opacity = 1) => `rgba(41, 128, 185, ${opacity})`,
+          }
+        ]
+      };
+    }
+
     return {
-      incomeData,
-      hoursData,
-      shiftsData,
-      pieData
+      labels: statistics.earnings.map(item => item.month),
+      datasets: [
+        {
+          data: statistics.earnings.map(item => item.value),
+          color: (opacity = 1) => `rgba(41, 128, 185, ${opacity})`,
+        }
+      ]
     };
-  }, [shifts]);
-  
-  const chartData = processChartData();
-  
+  };
+
+  const getShiftsChartData = () => {
+    if (!statistics || !statistics.shifts) return null;
+
+    return {
+      labels: ['Concluídos', 'Agendados', 'Cancelados'],
+      datasets: [
+        {
+          data: [
+            statistics.shifts.completed || 0,
+            statistics.shifts.upcoming || 0,
+            statistics.shifts.cancelled || 0
+          ]
+        }
+      ]
+    };
+  };
+
+  const getSpecialtiesChartData = () => {
+    if (!statistics || !statistics.specialties || statistics.specialties.length === 0) return null;
+
+    const colors = [
+      '#FF6384', '#36A2EB', '#FFCE56', '#4BC0C0', '#9966FF',
+      '#FF9F40', '#C9CBCF', '#7DCEA0', '#F1948A', '#85C1E9'
+    ];
+
+    return statistics.specialties.map((specialty, index) => ({
+      name: specialty.name,
+      count: specialty.count,
+      color: colors[index % colors.length],
+      legendFontColor: '#7F7F7F',
+      legendFontSize: 12
+    }));
+  };
+
   const chartConfig = {
-    backgroundGradientFrom: "#fff",
-    backgroundGradientTo: "#fff",
+    backgroundColor: '#ffffff',
+    backgroundGradientFrom: '#ffffff',
+    backgroundGradientTo: '#ffffff',
     decimalPlaces: 0,
     color: (opacity = 1) => `rgba(0, 0, 0, ${opacity})`,
     labelColor: (opacity = 1) => `rgba(0, 0, 0, ${opacity})`,
@@ -210,177 +157,175 @@ const StatisticsScreen = ({ navigation }) => {
       borderRadius: 16
     },
     propsForDots: {
-      r: "4",
-      strokeWidth: "2",
-      stroke: "#3498db"
+      r: '6',
+      strokeWidth: '2',
+      stroke: '#ffa726'
     }
   };
 
-  if (loading) {
+  const renderPeriodSelector = () => (
+    <View style={styles.periodContainer}>
+      <Text style={styles.sectionTitle}>Período:</Text>
+      <View style={styles.periodButtons}>
+        <TouchableOpacity
+          style={[styles.periodButton, period === PERIODS.WEEK && styles.periodButtonActive]}
+          onPress={() => handlePeriodChange(PERIODS.WEEK)}
+        >
+          <Text style={[
+            styles.periodButtonText,
+            period === PERIODS.WEEK && styles.periodButtonTextActive
+          ]}>Semana</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.periodButton, period === PERIODS.MONTH && styles.periodButtonActive]}
+          onPress={() => handlePeriodChange(PERIODS.MONTH)}
+        >
+          <Text style={[
+            styles.periodButtonText,
+            period === PERIODS.MONTH && styles.periodButtonTextActive
+          ]}>Mês</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.periodButton, period === PERIODS.YEAR && styles.periodButtonActive]}
+          onPress={() => handlePeriodChange(PERIODS.YEAR)}
+        >
+          <Text style={[
+            styles.periodButtonText,
+            period === PERIODS.YEAR && styles.periodButtonTextActive
+          ]}>Ano</Text>
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+
+  const renderSummary = () => {
+    if (!statistics) return null;
+
     return (
-      <View style={[styles.container, styles.loadingContainer]}>
-        <ActivityIndicator size="large" color="#3498db" />
-        <Text style={styles.loadingText}>Carregando estatísticas...</Text>
+      <View style={styles.summaryContainer}>
+        <View style={styles.summaryItem}>
+          <Text style={styles.summaryValue}>
+            R$ {statistics.totalEarnings?.toFixed(2).replace('.', ',')}
+          </Text>
+          <Text style={styles.summaryLabel}>Ganhos Totais</Text>
+        </View>
+        <View style={styles.summaryItem}>
+          <Text style={styles.summaryValue}>{statistics.totalShifts || 0}</Text>
+          <Text style={styles.summaryLabel}>Plantões Realizados</Text>
+        </View>
+        <View style={styles.summaryItem}>
+          <Text style={styles.summaryValue}>{statistics.averageRating || '-'}</Text>
+          <Text style={styles.summaryLabel}>Avaliação Média</Text>
+        </View>
       </View>
     );
-  }
+  };
+
+  const renderContent = () => {
+    if (loading) {
+      return (
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color="#0066CC" />
+          <Text style={styles.loadingText}>Carregando estatísticas...</Text>
+        </View>
+      );
+    }
+
+    if (error) {
+      return (
+        <View style={styles.errorContainer}>
+          <MaterialIcons name="error-outline" size={48} color="#FF6B6B" />
+          <Text style={styles.errorText}>{error}</Text>
+          <TouchableOpacity style={styles.retryButton} onPress={() => fetchStatistics()}>
+            <Text style={styles.retryButtonText}>Tentar Novamente</Text>
+          </TouchableOpacity>
+        </View>
+      );
+    }
+
+    if (!statistics) {
+      return (
+        <View style={styles.emptyContainer}>
+          <MaterialIcons name="insert-chart" size={48} color="#BDBDBD" />
+          <Text style={styles.emptyText}>Nenhuma estatística disponível</Text>
+        </View>
+      );
+    }
+
+    const earningsData = getEarningsChartData();
+    const shiftsData = getShiftsChartData();
+    const specialtiesData = getSpecialtiesChartData();
+
+    return (
+      <>
+        {renderPeriodSelector()}
+        {renderSummary()}
+
+        <View style={styles.sectionContainer}>
+          <Text style={styles.sectionTitle}>Ganhos</Text>
+          {earningsData && (
+            <LineChart
+              data={earningsData}
+              width={width - 40}
+              height={220}
+              chartConfig={chartConfig}
+              bezier
+              style={styles.chart}
+            />
+          )}
+        </View>
+
+        <View style={styles.sectionContainer}>
+          <Text style={styles.sectionTitle}>Plantões</Text>
+          {shiftsData && (
+            <BarChart
+              data={shiftsData}
+              width={width - 40}
+              height={220}
+              chartConfig={{
+                ...chartConfig,
+                color: (opacity = 1) => `rgba(46, 204, 113, ${opacity})`,
+              }}
+              style={styles.chart}
+            />
+          )}
+        </View>
+
+        {specialtiesData && specialtiesData.length > 0 && (
+          <View style={styles.sectionContainer}>
+            <Text style={styles.sectionTitle}>Especialidades</Text>
+            <PieChart
+              data={specialtiesData}
+              width={width - 40}
+              height={220}
+              chartConfig={chartConfig}
+              accessor="count"
+              backgroundColor="transparent"
+              paddingLeft="15"
+              style={styles.chart}
+            />
+          </View>
+        )}
+      </>
+    );
+  };
 
   return (
     <SafeAreaView style={styles.container}>
-      <StatusBar style="auto" />
-      
-      <View style={styles.header}>
-        <Text style={styles.headerTitle}>Estatísticas</Text>
-        <Text style={styles.headerSubtitle}>Analise seu desempenho financeiro</Text>
-      </View>
-      
-      <View style={styles.statsContainer}>
-        <View style={styles.statCard}>
-          <Text style={styles.statValue}>{stats.totalShifts}</Text>
-          <Text style={styles.statLabel}>Plantões</Text>
-        </View>
+      <ScrollView
+        style={styles.scrollView}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />
+        }
+      >
+        <Text style={styles.title}>Estatísticas e Desempenho</Text>
         
-        <View style={styles.statCard}>
-          <Text style={styles.statValue}>{stats.totalHours}h</Text>
-          <Text style={styles.statLabel}>Horas</Text>
-        </View>
+        {renderContent()}
         
-        <View style={styles.statCard}>
-          <Text style={styles.statValue}>{formatCurrency(stats.totalValue)}</Text>
-          <Text style={styles.statLabel}>Total</Text>
-        </View>
-      </View>
-      
-      <View style={styles.tabContainer}>
-        <TouchableOpacity 
-          style={[styles.tab, activeTab === 'income' && styles.activeTab]} 
-          onPress={() => setActiveTab('income')}
-        >
-          <Text style={[styles.tabText, activeTab === 'income' && styles.activeTabText]}>Valores</Text>
-        </TouchableOpacity>
-        <TouchableOpacity 
-          style={[styles.tab, activeTab === 'hours' && styles.activeTab]} 
-          onPress={() => setActiveTab('hours')}
-        >
-          <Text style={[styles.tabText, activeTab === 'hours' && styles.activeTabText]}>Horas</Text>
-        </TouchableOpacity>
-        <TouchableOpacity 
-          style={[styles.tab, activeTab === 'shifts' && styles.activeTab]} 
-          onPress={() => setActiveTab('shifts')}
-        >
-          <Text style={[styles.tabText, activeTab === 'shifts' && styles.activeTabText]}>Plantões</Text>
-        </TouchableOpacity>
-        <TouchableOpacity 
-          style={[styles.tab, activeTab === 'institutions' && styles.activeTab]} 
-          onPress={() => setActiveTab('institutions')}
-        >
-          <Text style={[styles.tabText, activeTab === 'institutions' && styles.activeTabText]}>Instituições</Text>
-        </TouchableOpacity>
-      </View>
-
-      <ScrollView style={styles.content}>
-        {activeTab === 'income' && (
-          <View style={styles.chartContainer}>
-            <Text style={styles.chartTitle}>Valores por Mês (R$)</Text>
-            {chartData.incomeData.datasets[0].data.some(value => value > 0) ? (
-              <LineChart
-                data={chartData.incomeData}
-                width={screenWidth - 40}
-                height={220}
-                chartConfig={chartConfig}
-                bezier
-                style={styles.chart}
-              />
-            ) : (
-              <View style={styles.emptyChart}>
-                <Text style={styles.emptyText}>Nenhum dado disponível</Text>
-              </View>
-            )}
-          </View>
-        )}
-
-        {activeTab === 'hours' && (
-          <View style={styles.chartContainer}>
-            <Text style={styles.chartTitle}>Horas por Mês</Text>
-            {chartData.hoursData.datasets[0].data.some(value => value > 0) ? (
-              <BarChart
-                data={chartData.hoursData}
-                width={screenWidth - 40}
-                height={220}
-                chartConfig={chartConfig}
-                style={styles.chart}
-                verticalLabelRotation={0}
-              />
-            ) : (
-              <View style={styles.emptyChart}>
-                <Text style={styles.emptyText}>Nenhum dado disponível</Text>
-              </View>
-            )}
-          </View>
-        )}
-
-        {activeTab === 'shifts' && (
-          <View style={styles.chartContainer}>
-            <Text style={styles.chartTitle}>Plantões por Mês</Text>
-            {chartData.shiftsData.datasets[0].data.some(value => value > 0) ? (
-              <BarChart
-                data={chartData.shiftsData}
-                width={screenWidth - 40}
-                height={220}
-                chartConfig={chartConfig}
-                style={styles.chart}
-                verticalLabelRotation={0}
-              />
-            ) : (
-              <View style={styles.emptyChart}>
-                <Text style={styles.emptyText}>Nenhum dado disponível</Text>
-              </View>
-            )}
-          </View>
-        )}
-
-        {activeTab === 'institutions' && (
-          <View style={styles.chartContainer}>
-            <Text style={styles.chartTitle}>Valor por Instituição</Text>
-            {chartData.pieData.length > 0 ? (
-              <PieChart
-                data={chartData.pieData}
-                width={screenWidth - 40}
-                height={220}
-                chartConfig={chartConfig}
-                accessor={"population"}
-                backgroundColor={"transparent"}
-                paddingLeft={"15"}
-                absolute
-              />
-            ) : (
-              <View style={styles.emptyChart}>
-                <Text style={styles.emptyText}>Nenhum dado disponível</Text>
-              </View>
-            )}
-          </View>
-        )}
-        
-        {error && (
-          <View style={styles.errorContainer}>
-            <Text style={styles.errorText}>{error}</Text>
-          </View>
-        )}
-        
-        <View style={styles.actionButtons}>
-          <TouchableOpacity 
-            style={styles.button}
-            onPress={() => navigation.navigate('Dashboard')}
-          >
-            <Text style={styles.buttonText}>Ver Dashboard</Text>
-          </TouchableOpacity>
-          
-          <TouchableOpacity 
-            style={[styles.button, styles.secondaryButton]}
-            onPress={() => navigation.navigate('Shifts')}
-          >
-            <Text style={styles.buttonText}>Gerenciar Plantões</Text>
-          </TouchableOpacity>
+        <View style={styles.modeContainer}>
+          <Text style={styles.modeText}>
+            Modo de teste: {MockService.isEnabled() ? 'Ativado' : 'Desativado'}
+          </Text>
         </View>
       </ScrollView>
     </SafeAreaView>
@@ -390,162 +335,181 @@ const StatisticsScreen = ({ navigation }) => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f8f9fa',
+    backgroundColor: colors.background,
+  },
+  scrollView: {
+    flex: 1,
+    padding: 20,
   },
   loadingContainer: {
+    flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    padding: 20,
   },
   loadingText: {
     marginTop: 10,
     fontSize: 16,
-    color: '#7f8c8d',
+    color: colors.text,
   },
-  header: {
-    backgroundColor: '#3498db',
-    padding: 20,
-    paddingBottom: 30,
-  },
-  headerTitle: {
+  title: {
     fontSize: 24,
     fontWeight: 'bold',
-    color: '#fff',
-    textAlign: 'center',
-    marginTop: 10,
+    color: colors.text,
+    marginBottom: 20,
   },
-  headerSubtitle: {
-    fontSize: 14,
-    color: 'rgba(255, 255, 255, 0.8)',
-    textAlign: 'center',
-    marginTop: 5,
-  },
-  statsContainer: {
+  summaryContainer: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    padding: 20,
-    marginTop: -20,
-    backgroundColor: 'transparent',
+    marginBottom: 20,
   },
-  statCard: {
+  summaryItem: {
     flex: 1,
-    backgroundColor: '#fff',
+    backgroundColor: colors.white,
     borderRadius: 10,
     padding: 15,
-    margin: 5,
+    marginHorizontal: 5,
     alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
+    ...Platform.select({
+      ios: {
+        shadowColor: colors.shadow,
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.1,
+        shadowRadius: 4,
+      },
+      android: {
+        elevation: 3,
+      },
+    }),
   },
-  statValue: {
+  summaryValue: {
     fontSize: 18,
     fontWeight: 'bold',
-    color: '#2c3e50',
+    color: colors.primary,
+    marginBottom: 5,
   },
-  statLabel: {
+  summaryLabel: {
     fontSize: 12,
-    color: '#7f8c8d',
-    marginTop: 5,
-  },
-  tabContainer: {
-    flexDirection: 'row',
-    backgroundColor: '#fff',
-    marginHorizontal: 20,
-    marginBottom: 20,
-    borderRadius: 10,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 3,
-    elevation: 3,
-  },
-  tab: {
-    flex: 1,
-    paddingVertical: 12,
-    alignItems: 'center',
-  },
-  activeTab: {
-    borderBottomWidth: 2,
-    borderBottomColor: '#3498db',
-  },
-  tabText: {
-    fontSize: 12,
-    color: '#7f8c8d',
-  },
-  activeTabText: {
-    color: '#3498db',
-    fontWeight: 'bold',
-  },
-  content: {
-    flex: 1,
-    paddingHorizontal: 20,
+    color: colors.textLight,
+    textAlign: 'center',
   },
   chartContainer: {
-    backgroundColor: '#fff',
+    backgroundColor: colors.white,
     borderRadius: 10,
     padding: 15,
     marginBottom: 20,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 3,
-    elevation: 3,
+    ...Platform.select({
+      ios: {
+        shadowColor: colors.shadow,
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.1,
+        shadowRadius: 4,
+      },
+      android: {
+        elevation: 3,
+      },
+    }),
   },
   chartTitle: {
     fontSize: 16,
-    fontWeight: 'bold',
-    color: '#2c3e50',
-    marginBottom: 15,
-    textAlign: 'center',
+    fontWeight: '600',
+    color: colors.text,
+    marginBottom: 10,
   },
   chart: {
     marginVertical: 8,
-    borderRadius: 16,
-  },
-  emptyChart: {
-    height: 220,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  emptyText: {
-    fontSize: 16,
-    color: '#7f8c8d',
+    borderRadius: 10,
   },
   errorContainer: {
-    padding: 15,
-    backgroundColor: '#f8d7da',
+    padding: 20,
+    backgroundColor: '#FFF0F0',
     borderRadius: 10,
+    borderLeftWidth: 4,
+    borderLeftColor: '#FF6B6B',
     marginBottom: 20,
   },
   errorText: {
-    color: '#721c24',
+    color: '#CC4444',
     fontSize: 14,
   },
-  actionButtons: {
-    marginBottom: 30,
-  },
-  button: {
-    backgroundColor: '#3498db',
-    padding: 15,
-    borderRadius: 10,
+  modeContainer: {
     alignItems: 'center',
-    marginVertical: 8,
+    padding: 10,
+    marginBottom: 20,
+  },
+  modeText: {
+    color: colors.textLight,
+    fontSize: 12,
+  },
+  periodContainer: {
+    marginBottom: 20,
+  },
+  periodButtons: {
+    flexDirection: 'row',
+    marginTop: 10,
+    backgroundColor: '#EAECEF',
+    borderRadius: 8,
+    padding: 4,
+  },
+  periodButton: {
+    flex: 1,
+    paddingVertical: 8,
+    alignItems: 'center',
+    borderRadius: 6,
+  },
+  periodButtonActive: {
+    backgroundColor: '#FFFFFF',
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
+    shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 2,
+  },
+  periodButtonText: {
+    fontSize: 14,
+    color: '#7F8C8D',
+  },
+  periodButtonTextActive: {
+    color: '#2C3E50',
+    fontWeight: '600',
+  },
+  sectionContainer: {
+    backgroundColor: colors.white,
+    borderRadius: 10,
+    padding: 15,
+    marginBottom: 20,
+    shadowColor: colors.shadow,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
     shadowRadius: 3,
     elevation: 3,
   },
-  secondaryButton: {
-    backgroundColor: '#2ecc71',
+  sectionTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: colors.text,
+    marginBottom: 15,
   },
-  buttonText: {
-    color: '#fff',
+  emptyContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 40,
+  },
+  emptyText: {
+    marginTop: 10,
     fontSize: 16,
-    fontWeight: 'bold',
+    color: colors.textLight,
+  },
+  retryButton: {
+    marginTop: 20,
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    backgroundColor: colors.primary,
+    borderRadius: 5,
+  },
+  retryButtonText: {
+    color: colors.white,
+    fontSize: 16,
+    fontWeight: '500',
   },
 });
 

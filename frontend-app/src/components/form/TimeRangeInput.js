@@ -21,7 +21,7 @@ const TimeRangeInput = ({
       setStartTime(start);
       setEndTime(end);
     }
-  }, []);
+  }, [value]);
   
   // Atualiza o valor quando os campos mudam
   const updateValue = (newStartTime, newEndTime) => {

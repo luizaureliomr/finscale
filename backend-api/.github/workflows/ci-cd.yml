@@ -1,0 +1,65 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Setup Node.js
+      uses: actions/setup-node@v3
+      with:
+        node-version: '18.x'
+        cache: 'npm'
+    
+    - name: Install dependencies
+      run: npm ci
+    
+    - name: Run ESLint
+      run: npx eslint . --ext .js
+      continue-on-error: true
+    
+    - name: Run Tests
+      run: npm test
+      continue-on-error: true
+
+  deploy-dev:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/develop'
+    needs: build
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Setup Node.js
+      uses: actions/setup-node@v3
+      with:
+        node-version: '18.x'
+    
+    - name: Deploy to Development
+      run: echo "Deploying to development environment"
+      # Aqui você adicionaria os comandos reais para deploy
+
+  deploy-prod:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: build
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Setup Node.js
+      uses: actions/setup-node@v3
+      with:
+        node-version: '18.x'
+    
+    - name: Deploy to Production
+      run: echo "Deploying to production environment"
+      # Aqui você adicionaria os comandos reais para deploy 

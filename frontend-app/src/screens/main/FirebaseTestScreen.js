@@ -7,7 +7,8 @@ import {
   TouchableOpacity,
   TextInput,
   ActivityIndicator,
-  Alert
+  Alert,
+  Switch
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { useAuth } from '../../contexts/AuthContext';
@@ -15,6 +16,9 @@ import firebaseTestService from '../../services/firebaseTestService';
 import notificationService from '../../services/notificationService';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import testDataService from '../../services/testDataService';
+import shiftService from '../../services/shiftService';
+import { formatDateBR, formatCurrency } from '../../utils/formatters';
 
 const TestItem = ({ title, status, result, onPress }) => {
   return (
@@ -47,6 +51,9 @@ const FirebaseTestScreen = ({ navigation }) => {
   const [storageTest, setStorageTest] = useState({ status: 'idle', result: null });
   const [notificationsTest, setNotificationsTest] = useState({ status: 'idle', result: null });
   const [scheduledNotifications, setScheduledNotifications] = useState({ status: 'idle', result: null });
+  const [shifts, setShifts] = useState([]);
+  const [cleanupTimeout, setCleanupTimeout] = useState(null);
+  const [autoCleanup, setAutoCleanup] = useState(false);
   
   // Adicionar resultado de teste
   const addResult = (title, success, message) => {
@@ -289,6 +296,176 @@ const FirebaseTestScreen = ({ navigation }) => {
     }
   };
 
+  // Carregar dados
+  useEffect(() => {
+    let isMounted = true;
+    
+    const loadData = async () => {
+      if (isMounted) setLoading(true);
+      
+      try {
+        const result = await shiftService.getAllShifts();
+        
+        if (!isMounted) return;
+        
+        if (result.success) {
+          setShifts(result.data);
+        } else {
+          Alert.alert('Erro', result.error || 'Erro ao carregar dados');
+        }
+      } catch (error) {
+        if (isMounted) {
+          console.error('Erro ao carregar dados:', error);
+          Alert.alert('Erro', 'Erro ao carregar dados');
+        }
+      } finally {
+        if (isMounted) setLoading(false);
+      }
+    };
+    
+    loadData();
+    
+    return () => {
+      isMounted = false;
+      
+      // Cancelar limpeza automática ao desmontar
+      if (cleanupTimeout) {
+        testDataService.cancelAutomaticCleanup(cleanupTimeout);
+      }
+    };
+  }, []);
+  
+  // Criar dados de teste
+  const handleCreateTestData = async () => {
+    setLoading(true);
+    
+    try {
+      const result = await testDataService.createTestShifts(10);
+      
+      if (result.success) {
+        Alert.alert('Sucesso', result.message);
+        
+        // Recarregar dados
+        const shiftsResult = await shiftService.getAllShifts();
+        if (shiftsResult.success) {
+          setShifts(shiftsResult.data);
+        }
+        
+        // Configurar limpeza automática se ativada
+        if (autoCleanup && !cleanupTimeout) {
+          const timerId = testDataService.setupAutomaticCleanup(30); // 30 minutos
+          setCleanupTimeout(timerId);
+        }
+      } else {
+        Alert.alert('Erro', result.error || 'Erro ao criar dados de teste');
+      }
+    } catch (error) {
+      console.error('Erro ao criar dados de teste:', error);
+      Alert.alert('Erro', 'Erro ao criar dados de teste');
+    } finally {
+      setLoading(false);
+    }
+  };
+  
+  // Limpar dados de teste
+  const handleCleanupTestData = async () => {
+    setLoading(true);
+    
+    try {
+      const result = await testDataService.cleanupTestData();
+      
+      if (result.success) {
+        Alert.alert('Sucesso', result.message);
+        
+        // Recarregar dados
+        const shiftsResult = await shiftService.getAllShifts();
+        if (shiftsResult.success) {
+          setShifts(shiftsResult.data);
+        }
+        
+        // Cancelar limpeza automática agendada
+        if (cleanupTimeout) {
+          testDataService.cancelAutomaticCleanup(cleanupTimeout);
+          setCleanupTimeout(null);
+        }
+      } else {
+        Alert.alert('Erro', result.error || 'Erro ao limpar dados de teste');
+      }
+    } catch (error) {
+      console.error('Erro ao limpar dados de teste:', error);
+      Alert.alert('Erro', 'Erro ao limpar dados de teste');
+    } finally {
+      setLoading(false);
+    }
+  };
+  
+  // Ativar/desativar limpeza automática
+  const toggleAutoCleanup = (value) => {
+    setAutoCleanup(value);
+    
+    if (value && !cleanupTimeout) {
+      // Configurar limpeza automática
+      const timerId = testDataService.setupAutomaticCleanup(30); // 30 minutos
+      setCleanupTimeout(timerId);
+      Alert.alert('Limpeza Automática', 'Dados de teste serão removidos automaticamente em 30 minutos');
+    } else if (!value && cleanupTimeout) {
+      // Cancelar limpeza automática
+      testDataService.cancelAutomaticCleanup(cleanupTimeout);
+      setCleanupTimeout(null);
+      Alert.alert('Limpeza Automática', 'Limpeza automática desativada');
+    }
+  };
+
+  // Identificar se um item é dado de teste
+  const isTestData = (item) => {
+    if (item.isTestData) return true;
+    
+    if (item.institution && typeof item.institution === 'string' && 
+        item.institution.startsWith(testDataService.TEST_PREFIX)) {
+      return true;
+    }
+    
+    return false;
+  };
+  
+  // Renderizar item na lista
+  const renderItem = ({ item }) => (
+    <View style={[
+      styles.shiftItem, 
+      isTestData(item) ? styles.testDataItem : {}
+    ]}>
+      <View style={styles.shiftHeader}>
+        <Text style={styles.shiftInstitution}>{item.institution}</Text>
+        {isTestData(item) && (
+          <View style={styles.testBadge}>
+            <Text style={styles.testBadgeText}>TESTE</Text>
+          </View>
+        )}
+      </View>
+      
+      <View style={styles.shiftDetails}>
+        <View style={styles.detailRow}>
+          <Text style={styles.detailLabel}>Data:</Text>
+          <Text style={styles.detailValue}>
+            {item.date instanceof Date 
+              ? formatDateBR(item.date) 
+              : (item.date?.toDate ? formatDateBR(item.date.toDate()) : 'Data inválida')}
+          </Text>
+        </View>
+        
+        <View style={styles.detailRow}>
+          <Text style={styles.detailLabel}>Valor:</Text>
+          <Text style={styles.detailValue}>{formatCurrency(item.value)}</Text>
+        </View>
+        
+        <View style={styles.detailRow}>
+          <Text style={styles.detailLabel}>Status:</Text>
+          <Text style={styles.detailValue}>{item.status}</Text>
+        </View>
+      </View>
+    </View>
+  );
+
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar style="auto" />
@@ -348,6 +525,74 @@ const FirebaseTestScreen = ({ navigation }) => {
           />
         </View>
       </ScrollView>
+      
+      <View style={styles.controlPanel}>
+        <View style={styles.controlRow}>
+          <TouchableOpacity 
+            style={[styles.button, styles.createButton]}
+            onPress={handleCreateTestData}
+            disabled={loading}
+          >
+            {loading ? (
+              <ActivityIndicator color="#fff" />
+            ) : (
+              <Text style={styles.buttonText}>Criar Dados de Teste</Text>
+            )}
+          </TouchableOpacity>
+          
+          <TouchableOpacity 
+            style={[styles.button, styles.cleanupButton]}
+            onPress={handleCleanupTestData}
+            disabled={loading}
+          >
+            {loading ? (
+              <ActivityIndicator color="#fff" />
+            ) : (
+              <Text style={styles.buttonText}>Limpar Dados de Teste</Text>
+            )}
+          </TouchableOpacity>
+        </View>
+        
+        <View style={styles.switchContainer}>
+          <Text style={styles.switchLabel}>Limpeza automática (30 min):</Text>
+          <Switch
+            value={autoCleanup}
+            onValueChange={toggleAutoCleanup}
+            disabled={loading}
+          />
+        </View>
+        
+        {cleanupTimeout && (
+          <Text style={styles.cleanupStatus}>
+            Limpeza automática ativada (30 minutos)
+          </Text>
+        )}
+      </View>
+      
+      <Text style={styles.sectionTitle}>
+        Plantões ({shifts.length})
+      </Text>
+      
+      {loading ? (
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color="#3498db" />
+          <Text style={styles.loadingText}>Carregando dados...</Text>
+        </View>
+      ) : (
+        <FlatList
+          data={shifts}
+          renderItem={renderItem}
+          keyExtractor={(item) => item.id}
+          contentContainerStyle={styles.listContainer}
+          ListEmptyComponent={() => (
+            <View style={styles.emptyContainer}>
+              <Text style={styles.emptyText}>
+                Nenhum plantão encontrado
+              </Text>
+            </View>
+          )}
+        />
+      )}
       
       {loading && (
         <View style={styles.loadingContainer}>
@@ -504,7 +749,120 @@ const styles = StyleSheet.create({
   resultMessage: {
     fontSize: 14,
     color: '#34495e',
-  }
+  },
+  controlPanel: {
+    backgroundColor: '#fff',
+    padding: 15,
+    margin: 15,
+    borderRadius: 10,
+    elevation: 3,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.2,
+    shadowRadius: 2,
+  },
+  controlRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  button: {
+    flex: 1,
+    padding: 12,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    margin: 5,
+  },
+  createButton: {
+    backgroundColor: '#3498db',
+  },
+  cleanupButton: {
+    backgroundColor: '#e74c3c',
+  },
+  buttonText: {
+    color: '#fff',
+    fontWeight: 'bold',
+  },
+  switchContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 15,
+    padding: 5,
+  },
+  switchLabel: {
+    fontSize: 14,
+    color: '#2c3e50',
+  },
+  cleanupStatus: {
+    fontSize: 12,
+    color: '#7f8c8d',
+    textAlign: 'center',
+    marginTop: 5,
+    fontStyle: 'italic',
+  },
+  listContainer: {
+    paddingHorizontal: 15,
+    paddingBottom: 20,
+  },
+  shiftItem: {
+    backgroundColor: '#fff',
+    borderRadius: 10,
+    padding: 15,
+    marginBottom: 15,
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+  },
+  testDataItem: {
+    borderLeftWidth: 4,
+    borderLeftColor: '#e74c3c',
+  },
+  shiftHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  shiftInstitution: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#2c3e50',
+    flex: 1,
+  },
+  testBadge: {
+    backgroundColor: '#e74c3c',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  testBadgeText: {
+    color: '#fff',
+    fontSize: 10,
+    fontWeight: 'bold',
+  },
+  shiftDetails: {
+    marginVertical: 5,
+  },
+  detailRow: {
+    flexDirection: 'row',
+    marginBottom: 5,
+  },
+  detailLabel: {
+    width: 60,
+    fontSize: 14,
+    color: '#7f8c8d',
+  },
+  detailValue: {
+    fontSize: 14,
+    color: '#2c3e50',
+  },
+  emptyContainer: {
+    padding: 20,
+    alignItems: 'center',
+  },
 });
 
 export default FirebaseTestScreen; 
