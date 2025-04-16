@@ -1,7 +1,11 @@
 const express = require('express');
 const cors = require('cors');
 const { connectDB } = require('./config/database');
-require('dotenv').config();
+const dotenv = require('dotenv');
+const routes = require('./routes');
+
+// Carregar variáveis de ambiente
+dotenv.config();
 
 // Importar rotas
 const userRoutes = require('./routes/userRoutes');
@@ -19,9 +23,12 @@ app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
+// Configurar rotas
+app.use('/api', routes);
+
 // Rota básica
 app.get('/', (req, res) => {
-  res.json({ message: 'Bem-vindo à API Finscale' });
+  res.json({ message: 'API Finscale funcionando!' });
 });
 
 // Rotas da API
@@ -32,15 +39,11 @@ app.use(`${API_PREFIX}/statistics`, statisticsRoutes);
 
 // Middleware de tratamento de erros
 app.use((err, req, res, next) => {
-  console.error(err.stack);
-  
-  const statusCode = err.statusCode || 500;
-  const message = err.message || 'Erro interno do servidor';
-  
-  res.status(statusCode).json({
+  console.error('Erro na aplicação:', err.stack);
+  res.status(500).json({
     success: false,
-    error: message,
-    stack: process.env.NODE_ENV === 'development' ? err.stack : undefined
+    error: 'Erro interno do servidor',
+    message: process.env.NODE_ENV === 'development' ? err.message : undefined
   });
 });
 
@@ -62,6 +65,7 @@ const startServer = async () => {
     app.listen(PORT, () => {
       console.log(`Servidor rodando em http://localhost:${PORT}`);
       console.log(`API disponível em http://localhost:${PORT}${API_PREFIX}`);
+      console.log(`Ambiente: ${process.env.NODE_ENV || 'development'}`);
     });
   } catch (error) {
     console.error('Erro ao iniciar servidor:', error);
@@ -69,4 +73,6 @@ const startServer = async () => {
   }
 };
 
-startServer(); 
+startServer();
+
+module.exports = app; 
