@@ -4,9 +4,18 @@ import * as Device from 'expo-device';
 import { Platform } from 'react-native';
 import { formatters } from '../components/form/MaskedInput';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import firebase from 'firebase/app';
+import 'firebase/messaging';
+import { firebaseConfig } from './firebaseConfig';
 
-// Chave para armazenar as notificações agendadas no AsyncStorage
+// Inicializar Firebase se ainda não inicializado
+if (!firebase.apps.length) {
+  firebase.initializeApp(firebaseConfig);
+}
+
+// Chaves para armazenamento
 const SCHEDULED_NOTIFICATIONS_KEY = '@finscale/scheduled_notifications';
+const FCM_TOKEN_KEY = '@finscale/fcm_token';
 
 // Configurar comportamento padrão para notificações
 Notifications.setNotificationHandler({
@@ -18,6 +27,168 @@ Notifications.setNotificationHandler({
 });
 
 class NotificationService {
+  /**
+   * Inicializa o serviço de notificações e FCM
+   */
+  constructor() {
+    this.fcmToken = null;
+  }
+
+  /**
+   * Inicializa o FCM e registra o token
+   * @returns {Promise<Object>} Resultado da inicialização FCM
+   */
+  async initializeFCM() {
+    try {
+      // Verificar permissões primeiro
+      const permissionsResult = await this.requestPermissions();
+      if (!permissionsResult.success) {
+        return permissionsResult;
+      }
+
+      // Verificar se o token já está armazenado localmente
+      const savedToken = await AsyncStorage.getItem(FCM_TOKEN_KEY);
+      if (savedToken) {
+        this.fcmToken = savedToken;
+        return { success: true, token: savedToken };
+      }
+
+      // Obter novo token FCM
+      const messaging = firebase.messaging();
+      
+      // Para iOS, registrar para notificações remotas
+      if (Platform.OS === 'ios') {
+        try {
+          const authStatus = await messaging.requestPermission();
+          const enabled = 
+            authStatus === messaging.AuthorizationStatus.AUTHORIZED || 
+            authStatus === messaging.AuthorizationStatus.PROVISIONAL;
+          
+          if (!enabled) {
+            return {
+              success: false,
+              error: 'Permissões de notificação não concedidas no iOS'
+            };
+          }
+        } catch (error) {
+          console.error('Erro ao solicitar permissão FCM no iOS:', error);
+          return {
+            success: false,
+            error: error.message
+          };
+        }
+      }
+
+      // Obter token FCM
+      try {
+        const token = await messaging.getToken();
+        if (token) {
+          this.fcmToken = token;
+          await AsyncStorage.setItem(FCM_TOKEN_KEY, token);
+          
+          // Enviar token para backend
+          await this.registerTokenWithBackend(token);
+          
+          return { success: true, token };
+        } else {
+          return {
+            success: false,
+            error: 'Não foi possível obter token FCM'
+          };
+        }
+      } catch (error) {
+        console.error('Erro ao obter token FCM:', error);
+        return {
+          success: false,
+          error: error.message
+        };
+      }
+    } catch (error) {
+      console.error('Erro ao inicializar FCM:', error);
+      return {
+        success: false,
+        error: error.message
+      };
+    }
+  }
+
+  /**
+   * Registra token FCM no backend
+   * @param {string} token - Token FCM para registrar
+   * @returns {Promise<Object>} Resultado do registro
+   */
+  async registerTokenWithBackend(token) {
+    try {
+      // TODO: Implementar chamada para API que registra o token no backend
+      // Exemplo:
+      // const apiService = require('./apiService').default;
+      // const response = await apiService.post('/users/fcm-token', { token });
+      console.log('Token FCM a ser registrado no backend:', token);
+      return { success: true };
+    } catch (error) {
+      console.error('Erro ao registrar token no backend:', error);
+      return {
+        success: false,
+        error: error.message
+      };
+    }
+  }
+
+  /**
+   * Configura listeners para FCM em diferentes estados do app
+   * @param {Function} onMessageCallback - Callback para mensagens recebidas com app aberto
+   * @param {Function} onBackgroundMessageCallback - Callback para mensagens em background
+   * @returns {Function} Função para remover listeners
+   */
+  setupFCMListeners(onMessageCallback, onBackgroundMessageCallback) {
+    const messaging = firebase.messaging();
+    
+    // Listener para mensagens com app em foreground
+    const unsubscribeOnMessage = messaging.onMessage(async (remoteMessage) => {
+      console.log('Mensagem FCM recebida em foreground:', remoteMessage);
+      
+      // Exibir como notificação local mesmo em foreground
+      await Notifications.scheduleNotificationAsync({
+        content: {
+          title: remoteMessage.notification?.title || 'Nova notificação',
+          body: remoteMessage.notification?.body || '',
+          data: remoteMessage.data || {},
+        },
+        trigger: null, // mostrar imediatamente
+      });
+      
+      // Chamar callback se fornecido
+      if (typeof onMessageCallback === 'function') {
+        onMessageCallback(remoteMessage);
+      }
+    });
+    
+    // Configurar handler para mensagens em background
+    if (typeof onBackgroundMessageCallback === 'function') {
+      messaging.setBackgroundMessageHandler(onBackgroundMessageCallback);
+    }
+    
+    // Listener para quando app é aberto por notificação
+    const unsubscribeOnNotificationOpen = messaging.onNotificationOpenedApp((remoteMessage) => {
+      console.log('Notificação abriu o app do background:', remoteMessage);
+      // Implementar navegação para a tela apropriada baseado nos dados
+    });
+    
+    // Verificar notificação inicial (caso app tenha sido aberto por notificação)
+    messaging.getInitialNotification().then((remoteMessage) => {
+      if (remoteMessage) {
+        console.log('App aberto por notificação inicial:', remoteMessage);
+        // Implementar navegação para a tela apropriada baseado nos dados
+      }
+    });
+    
+    // Retornar função para remover todos os listeners
+    return () => {
+      unsubscribeOnMessage();
+      unsubscribeOnNotificationOpen();
+    };
+  }
+
   /**
    * Solicita permissões para enviar notificações
    * @returns {Promise<Object>} Resultado da solicitação de permissões

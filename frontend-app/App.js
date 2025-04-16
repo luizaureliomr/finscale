@@ -1,16 +1,23 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, LogBox, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, LogBox, TouchableOpacity, StatusBar } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { NavigationContainer } from '@react-navigation/native';
 // Importando serviços e configurações
 import { app, db, auth } from './src/services/firebaseConfig';
 import { ApiService } from './src/services/apiService';
+import AppNavigator from './src/navigation/AppNavigator';
+import notificationService from './src/services/notificationService';
+import { Alert } from 'react-native';
 
 // Ignorar warnings específicos
 LogBox.ignoreLogs([
   'AsyncStorage has been extracted from react-native core',
   'Setting a timer for a long period of time',
   'VirtualizedLists should never be nested',
-  'Cannot update a component from inside'
+  'Cannot update a component from inside',
+  'Setting a timer',
+  'AsyncStorage has been extracted',
+  'Non-serializable values were found in the navigation state',
 ]);
 
 // Componente de carregamento
@@ -38,6 +45,7 @@ export default function App() {
   const [mainComponent, setMainComponent] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [notificationInitialized, setNotificationInitialized] = useState(false);
 
   // Função para carregar o aplicativo
   const loadApp = async () => {
@@ -65,6 +73,62 @@ export default function App() {
     loadApp();
   }, []);
 
+  // Inicialização de serviços
+  useEffect(() => {
+    async function initializeNotifications() {
+      try {
+        // Inicializar FCM
+        const fcmResult = await notificationService.initializeFCM();
+        if (fcmResult.success) {
+          console.log('FCM inicializado com sucesso, token:', fcmResult.token);
+          
+          // Configurar listeners para notificações FCM
+          const unsubscribeFCM = notificationService.setupFCMListeners(
+            (message) => {
+              console.log('Notificação recebida em foreground:', message);
+              // Implementar lógica para tratar notificações em foreground
+            },
+            async (message) => {
+              console.log('Notificação recebida em background:', message);
+              // Retornar true para indicar manipulação bem-sucedida
+              return Promise.resolve(true);
+            }
+          );
+          
+          setNotificationInitialized(true);
+          
+          // Limpar listeners ao desmontar
+          return () => {
+            unsubscribeFCM && unsubscribeFCM();
+          };
+        } else {
+          console.error('Erro ao inicializar FCM:', fcmResult.error);
+        }
+      } catch (error) {
+        console.error('Erro ao inicializar serviços:', error);
+      }
+    }
+
+    initializeNotifications();
+  }, []);
+
+  // Enviar notificação de teste ao iniciar (apenas em desenvolvimento)
+  useEffect(() => {
+    if (__DEV__ && notificationInitialized) {
+      setTimeout(() => {
+        notificationService.sendTestNotification()
+          .then(result => {
+            if (!result.success) {
+              console.error('Erro ao enviar notificação de teste:', result.error);
+            }
+          })
+          .catch(error => {
+            console.error('Erro ao enviar notificação de teste:', error);
+          });
+      }, 5000); // Atraso de 5 segundos
+    }
+  }, [notificationInitialized]);
+
   // Renderização condicional
   if (isLoading) {
     return <LoadingScreen />;
@@ -75,10 +139,11 @@ export default function App() {
   }
 
   const MainApp = mainComponent;
-  return MainApp ? <MainApp /> : (
-    <View style={styles.container}>
-      <Text style={styles.errorMessage}>Não foi possível carregar o aplicativo.</Text>
-    </View>
+  return (
+    <NavigationContainer>
+      <StatusBar style="auto" />
+      <AppNavigator />
+    </NavigationContainer>
   );
 }
 
